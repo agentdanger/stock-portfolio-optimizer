@@ -194,8 +194,10 @@ def optimize():
 
     blob.upload_from_string(json.dumps(final_results))
 
+    response = jsonify(final_results)
+
     # return final results as pretty json format indent 4
-    return json.dumps(final_results, indent=4)
+    return response
 
 @app.route('/results', methods=['GET'])
 
