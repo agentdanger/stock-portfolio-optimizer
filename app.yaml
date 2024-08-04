@@ -1,0 +1,17 @@
+# portfolio optimization api app.yaml file contents:
+runtime: python312
+env: standard
+
+service: get-optimal-portfolio
+
+instance_class: F4_1G
+automatic_scaling:
+  min_instances: 0
+  max_instances: 2
+
+handlers:
+  - url: /.*
+    script: auto
+    secure: always
+
+entrypoint: gunicorn -b :$PORT -t 18000 main:app
