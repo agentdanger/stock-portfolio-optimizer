@@ -195,19 +195,32 @@ def optimize():
 @app.route('/results', methods=['GET'])
 
 def results():
-    storage_client = storage.Client()
+    try:
+        # Initialize the Google Cloud Storage client
+        storage_client = storage.Client()
 
-    bucket = storage_client.bucket('portfolio-optimizer-35')
+        # Get the bucket where the JSON file is stored
+        bucket = storage_client.bucket('portfolio-optimizer-35')
 
-    blob = bucket.blob('portfolio-results.json')
+        # Get the blob (file) from the bucket
+        blob = bucket.blob('portfolio-results.json')
 
-    results = blob.download_as_string()
+        # Download the JSON content as a string
+        results = blob.download_as_string()
 
-    results_dict = json.loads(results)
+        # Convert the JSON string into a Python dictionary
+        results_dict = json.loads(results)
 
-    # return final results as pretty json format indent 4
+        # Return the results as pretty JSON with an indent of 4
+        # Use jsonify to ensure correct headers and formatting
+        response = jsonify(results_dict)
+        response.headers.add('Content-Type', 'application/json; charset=utf-8')
+        return response
 
-    return json.dumps(results_dict, indent=4)
+    except Exception as e:
+        # Log the error and return a 500 Internal Server Error response
+        app.logger.error(f"Failed to retrieve results: {e}")
+        return jsonify({"error": "Failed to retrieve results"}), 500
 
 @app.route("/")
 def home():
