@@ -162,22 +162,27 @@ def optimize():
     final_results['max_sharpe']['sd'] = max_sharpe_port_sd.item()
     final_results['max_sharpe']['sharpe'] = max_sharpe_port_sharpe.item()
     
-    final_results['max_sharpe']['weights'] = {}
+    final_results['max_sharpe']['weights'] = []
     
     for i in range(len(stock_universe)):
-        final_results['max_sharpe']['weights'][stock_universe[i]] = {}
-        final_results['max_sharpe']['weights'][stock_universe[i]]['weight'] = round(max_sharpe_results["x"][i], 4).item()
-        final_results['max_sharpe']['weights'][stock_universe[i]]['price'] = stocks[stock_universe[i]]['current_price']
+        tmp_stock = {}
+        tmp_stock['ticker'] = stock_universe[i]
+        tmp_stock['weight'] = round(max_sharpe_results["x"][i], 4).item()
+        tmp_stock['price'] = stocks[stock_universe[i]]['current_price']
 
+        final_results['max_sharpe']['weights'].append(tmp_stock)
+    
     for i in range(len(target)):
         final_results[f'target_{i}'] = {}
         final_results[f'target_{i}']['return'] = target[i].item()
         final_results[f'target_{i}']['sd'] = obj_sd[i].item()
-        final_results[f'target_{i}']['weights'] = {}
+        final_results[f'target_{i}']['weights'] = []
         for j in range(len(stock_universe)):
-            final_results[f'target_{i}']['weights'][stock_universe[j]] = {}
-            final_results[f'target_{i}']['weights'][stock_universe[j]]['weight'] = round(min_result_object["x"][j], 4).item()
-            final_results[f'target_{i}']['weights'][stock_universe[j]]['price'] = stocks[stock_universe[j]]['current_price']
+            tmp_result_stock = {}
+            tmp_result_stock['ticker'] = stock_universe[j]
+            tmp_result_stock['weight'] = round(min_result_object["x"][j], 4).item()
+            tmp_result_stock['price'] = stocks[stock_universe[j]]['current_price']
+            final_results[f'target_{i}']['weights'].append(tmp_result_stock)
 
     # save final results to json in Google Cloud Storage
 
