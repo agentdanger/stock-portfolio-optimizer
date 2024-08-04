@@ -25,7 +25,7 @@ def optimize():
     # define stock universe and earliest date to start from
     stock_universe = [
         'AAPL', 'ABBV', 'ABT', 'ACN', 'ADP', 'AEP', 'AFL', 'AMD', 'AME', 'AMZN', 
-        'AWK', 'BA', 'BLK', 'BP', 'BRK-B', 'C', 'CAE', 'CHD', 'CI', 'COST', 
+        'AWK', 'BA', 'BLK', 'BP', 'BRK-B', 'C', 'CAE', 'CB', 'CHD', 'CI', 'COST', 
         'CRM', 'CSCO', 'DE', 'DIS', 'DUK', 'ECL', 'EL', 'EMR', 'EQR', 'EXC', 
         'F', 'FDX', 'FTNT', 'GD', 'GIB', 'GM', 'GOOGL', 'GS', 'HD', 'HPQ', 'IBM', 
         'INTC', 'J', 'JNJ', 'JPM', 'KMB', 'KO', 'LLY', 'LMT', 'LOW', 'MA', 
