@@ -2,7 +2,7 @@
 runtime: python312
 env: standard
 
-service: get-optimal-portfolio
+service: optimal-portfolio
 
 instance_class: F4_1G
 automatic_scaling:
