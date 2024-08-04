@@ -203,9 +203,11 @@ def results():
 
     results = blob.download_as_string()
 
+    results_dict = json.loads(results)
+
     # return final results as pretty json format indent 4
 
-    return results
+    return json.dumps(results_dict, indent=4)
 
 @app.route("/")
 def home():
