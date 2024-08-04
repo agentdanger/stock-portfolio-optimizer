@@ -214,7 +214,12 @@ def results():
         # Return the results as pretty JSON with an indent of 4
         # Use jsonify to ensure correct headers and formatting
         response = jsonify(results_dict)
-        response.headers.add('Content-Type', 'application/json; charset=utf-8')
+        
+        # Set CORS headers manually
+        response.headers.set('Access-Control-Allow-Origin', '*')
+        response.headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.set('Access-Control-Allow-Headers', 'Content-Type')
+
         return response
 
     except Exception as e:
