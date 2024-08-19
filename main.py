@@ -24,15 +24,15 @@ app = Flask(__name__)
 def optimize():
     # define stock universe and earliest date to start from
     stock_universe = [
-        'AAPL', 'ABBV', 'ABT', 'ACN', 'ADP', 'AEP', 'AFL', 'AMD', 'AME', 'AMZN', 
-        'AWK', 'BA', 'BLK', 'BP', 'BRK-B', 'C', 'CAE', 'CB', 'CHD', 'CI', 'COST', 
-        'CRM', 'CSCO', 'DE', 'DIS', 'DUK', 'ECL', 'EL', 'EMR', 'EQR', 'EXC', 
-        'F', 'FDX', 'FTNT', 'GD', 'GIB', 'GM', 'GOOGL', 'GS', 'HD', 'HPQ', 'IBM', 
-        'INTC', 'J', 'JNJ', 'JPM', 'KMB', 'KO', 'LLY', 'LMT', 'LOW', 'MA', 
-        'MDT', 'MMM', 'MRK', 'MSFT', 'NEE', 'NVDA', 'OKE', 'ORLY', 'PEP', 'PFE', 
-        'PLD', 'PSA', 'ROST', 'RTX', 'SBUX', 'SHEL', 'SHW', 'SO', 'SU', 'SWK', 
-        'T', 'TFC', 'TGT', 'TJX', 'TRP', 'TRV', 'UNP', 'UPS', 'V', 'VZ', 
-        'WMT', 'WTRG', 'YUM'
+        'AAPL', 'ABBV', 'ABT', 'ACN', 'ADI', 'ADP', 'AEE', 'AEP', 'AFL', 'ALL', 'AMD', 'AME', 'AMT', 'AMZN', 'APH', 'ATO', 'AVGO',
+        'AWK', 'AXP', 'BA', 'BAC', 'BCE', 'BDX', 'BLK', 'BP', 'BRK-B', 'C', 'CAE', 'CARR', 'CB', 'CHD', 'CI', 'CL', 'CMCSA', 'CMI', 'CNP', 'COP', 'COST', 
+        'CP', 'CRM', 'CSCO', 'CSX', 'CTVA', 'CVX', 'DCI', 'DE', 'DG', 'DHR', 'DIS', 'DLR', 'DTE', 'DUK', 'ECL', 'EL', 'ELV', 'EMR', 'ENB', 'EQR', 'EVRG', 'EXC', 
+        'F', 'FDX', 'FI', 'FMC', 'FTNT', 'GD', 'GIB', 'GIS', 'GM', 'GOOGL', 'GS', 'HD', 'HLN', 'HON', 'HPQ', 'IBM', 
+        'INTC', 'INTU', 'J', 'JNJ', 'JPM', 'KEYS', 'KMB', 'KO', 'LIN', 'LLY', 'LMT', 'LNT', 'LOW', 'LUV', 'MA', 'MCO',
+        'MDT', 'MDU', 'META', 'MFC', 'MMM', 'MRK', 'MSCI', 'MSFT', 'NDAQ', 'NEE', 'NI', 'NKE', 'NOW', 'NTR', 'NVDA', 'O', 'OKE', 'ORCL', 'ORLY', 'PEP', 'PFE', 'PH',
+        'PLD', 'PSA', 'QCOM', 'RF', 'ROP', 'ROST', 'RTX', 'SBUX', 'SHEL', 'SHW', 'SO', 'SPGI', 'STT', 'SU', 'SWK', 'SWX', 'SYK',
+        'T', 'TFC', 'TGT', 'TJX', 'TMO', 'TRMB', 'TRP', 'TRV', 'TTE', 'ULTA', 'UNH', 'UNP', 'UPS', 'V', 'VFC', 'VZ', 
+        'WMT', 'WTRG', 'WWD', 'YUM', 'ZBH', 'ZTS'
         ]
 
     earliest_date = datetime(2014, 1, 1)
