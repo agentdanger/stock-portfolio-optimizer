@@ -113,7 +113,7 @@ def optimize():
     max_sharpe_port_sharpe = max_sharpe_port_return / max_sharpe_port_sd
 
     # Initialize an array of target returns for efficient frontier calculation
-    target_returns = np.linspace(start=0.15, stop=0.35, num=10)
+    target_returns = np.linspace(start=0.15, stop=0.50, num=15)
 
     # Instantiate an empty container for storing the results
     obj_sd = []
