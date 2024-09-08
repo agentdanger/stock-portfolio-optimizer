@@ -39,21 +39,28 @@ def optimize():
 
     # helper functions for pulling data
 
+    # Helper functions for pulling data
     def get_current_ticker_price_yf(ticker):
-        stock = yf.Ticker(ticker)
-        price = stock.history(period='1d')['Close'].values[0]
-        price_number = price.item()
-        return price_number
+        try:
+            stock = yf.Ticker(ticker)
+            price = stock.history(period='1d')['Close'].values[0]
+            return price.item()
+        except Exception as e:
+            print(f"Error fetching current price for {ticker}: {e}")
+            return None
 
     def get_historical_data_yf(ticker):
-        stock = yf.download(ticker)
-        # print earliest non-na date in stock
-        first_date = stock.index[stock['Close'].notna()][0]
-        return stock, first_date
+        try:
+            stock = yf.download(ticker, start=earliest_date)
+            first_date = stock.index[stock['Close'].notna()][0]
+            return stock, first_date
+        except Exception as e:
+            print(f"Error fetching historical data for {ticker}: {e}")
+            return None, earliest_date
 
     historical_data, fd = get_historical_data_yf('AAPL')
-
-    # create dataframe with dates from AAPL historical data.
+    
+    # Create dataframe with dates from AAPL historical data.
     stocks_df = pd.DataFrame(index=historical_data.index)
 
     stocks = {}
@@ -65,138 +72,111 @@ def optimize():
         if first_date > earliest_date:
             print(f'{ticker} has no data before {first_date}')
             earliest_date = first_date
-        stocks_df = stocks_df.join(historical_df['Adj Close']).rename(columns={'Adj Close': ticker})
+        if historical_df is not None:
+            stocks_df = stocks_df.join(historical_df['Adj Close']).rename(columns={'Adj Close': ticker})
 
-    daily_returns = stocks_df.pct_change().dropna(
-                # Drop the first row since we have NaN's
-                # The first date 2011-09-13 does not have a value since it is our cut-off date
-                axis = 0,
-                how = 'any',
-                inplace = False
-                )
+    daily_returns = stocks_df.pct_change().dropna()
 
-    # Function for computing portfolio return
+    # Portfolio return function
     def portfolio_returns(weights):
         return (np.sum(daily_returns.mean() * weights)) * 253
 
-    # Function for computing standard deviation of portfolio returns
+    # Portfolio standard deviation function
     def portfolio_sd(weights):
         return np.sqrt(np.transpose(weights) @ (daily_returns.cov() * 253) @ weights)
 
+    # Sharpe function
     def sharpe_fun(weights):
         return - (portfolio_returns(weights) / portfolio_sd(weights))
 
+    # Constraints for the optimizer (weights sum to 1)
     constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
 
-    bounds = tuple((0, 1) for x in range(len(stock_universe)))
+    # Bounds for the weights (between 0 and 1)
+    bounds = tuple((0, 1) for _ in range(len(stock_universe)))
 
-    equal_weights = np.array(
-    [1 / len(stock_universe)] * len(stock_universe)
-    )
+    # Initial guess (equal weighting)
+    equal_weights = np.array([1 / len(stock_universe)] * len(stock_universe))
 
-    # Minimization results
+    # Minimize negative Sharpe ratio to maximize the actual Sharpe ratio
     max_sharpe_results = sco.minimize(
-    # Objective function
-    fun = sharpe_fun, 
-
-    # Initial guess, equal weights
-    x0 = equal_weights, 
-    method = 'SLSQP',
-    bounds = bounds, 
-    constraints = constraints
+        fun=sharpe_fun,
+        x0=equal_weights,
+        method='SLSQP',
+        bounds=bounds,
+        constraints=constraints
     )
 
-    # Expected return
+    # Calculate expected return, standard deviation, and Sharpe ratio
     max_sharpe_port_return = portfolio_returns(max_sharpe_results["x"])
-
-    # Standard deviation
     max_sharpe_port_sd = portfolio_sd(max_sharpe_results["x"])
-
-    # Sharpe ratio
     max_sharpe_port_sharpe = max_sharpe_port_return / max_sharpe_port_sd
 
-    # Initialize an array of target returns
-    target = np.linspace(
-    start = 0.15, 
-    stop = 0.35,
-    num = 10
-    )
+    # Initialize an array of target returns for efficient frontier calculation
+    target_returns = np.linspace(start=0.15, stop=0.35, num=10)
 
-    # We use anonymous lambda functions
-    # The argument x will be the weights
-    constraints = (
-    {'type': 'eq', 'fun': lambda x: portfolio_returns(x) - target},
-    {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
-    )
-    # instantiate empty container for the objective values to be minimized
+    # Instantiate an empty container for storing the results
     obj_sd = []
-    # For loop to minimize objective function
-    for target in target:
+
+    # Loop to minimize standard deviation for each target return
+    for target in target_returns:
+        def portfolio_return_constraint(weights):
+            return portfolio_returns(weights) - target
+
+        constraints = [
+            {'type': 'eq', 'fun': portfolio_return_constraint},
+            {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
+        ]
+
         min_result_object = sco.minimize(
-            # Objective function
-            fun = portfolio_sd, 
-            
-            # Initial guess, equal weights
-            x0 = equal_weights, 
-            method = 'SLSQP',
-            bounds = bounds, 
-            constraints = constraints
+            fun=portfolio_sd,
+            x0=equal_weights,
+            method='SLSQP',
+            bounds=bounds,
+            constraints=constraints
         )
+
         obj_sd.append(min_result_object['fun'])
 
-    obj_sd = np.array(obj_sd)
-
-    # Reinstatiate the list of target returns
-    target = np.linspace(
-    start = 0.15, 
-    stop = 0.35,
-    num = 10
-    )
-
-    # add results to stocks dictionary
+    # Store the final results
     final_results = {}
 
-    final_results['max_sharpe'] = {}
-    
-    final_results['max_sharpe']['return'] = max_sharpe_port_return.item()
-    final_results['max_sharpe']['sd'] = max_sharpe_port_sd.item()
-    final_results['max_sharpe']['sharpe'] = max_sharpe_port_sharpe.item()
-    
-    final_results['max_sharpe']['weights'] = []
-    
-    for i in range(len(stock_universe)):
-        tmp_stock = {}
-        tmp_stock['ticker'] = stock_universe[i]
-        tmp_stock['weight'] = round(max_sharpe_results["x"][i], 4).item()
-        tmp_stock['price'] = stocks[stock_universe[i]]['current_price']
+    # Results for max Sharpe portfolio
+    final_results['max_sharpe'] = {
+        'return': max_sharpe_port_return.item(),
+        'sd': max_sharpe_port_sd.item(),
+        'sharpe': max_sharpe_port_sharpe.item(),
+        'weights': [
+            {
+                'ticker': stock_universe[i],
+                'weight': round(max_sharpe_results["x"][i], 4).item(),
+                'price': stocks[stock_universe[i]]['current_price']
+            } for i in range(len(stock_universe))
+        ]
+    }
 
-        final_results['max_sharpe']['weights'].append(tmp_stock)
-    
-    for i in range(len(target)):
-        final_results[f'target_{i}'] = {}
-        final_results[f'target_{i}']['return'] = target[i].item()
-        final_results[f'target_{i}']['sd'] = obj_sd[i].item()
-        final_results[f'target_{i}']['weights'] = []
-        for j in range(len(stock_universe)):
-            tmp_result_stock = {}
-            tmp_result_stock['ticker'] = stock_universe[j]
-            tmp_result_stock['weight'] = round(min_result_object["x"][j], 4).item()
-            tmp_result_stock['price'] = stocks[stock_universe[j]]['current_price']
-            final_results[f'target_{i}']['weights'].append(tmp_result_stock)
+    # Results for each target return
+    for i in range(len(target_returns)):
+        final_results[f'target_{i}'] = {
+            'return': target_returns[i].item(),
+            'sd': obj_sd[i].item(),
+            'weights': [
+                {
+                    'ticker': stock_universe[j],
+                    'weight': round(min_result_object["x"][j], 4).item(),
+                    'price': stocks[stock_universe[j]]['current_price']
+                } for j in range(len(stock_universe))
+            ]
+        }
 
-    # save final results to json in Google Cloud Storage
-
+    # Save final results to Google Cloud Storage
     storage_client = storage.Client()
-
     bucket = storage_client.bucket('portfolio-optimizer-35')
-
     blob = bucket.blob('portfolio-results.json')
-
     blob.upload_from_string(json.dumps(final_results))
 
+    # Return final results as JSON response
     response = jsonify(final_results)
-
-    # return final results as pretty json format indent 4
     return response
 
 @app.route('/results', methods=['GET'])
