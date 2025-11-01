@@ -14,7 +14,7 @@ import scipy.interpolate as sci
 
 import json
 
-from datetime import datetime
+from datetime import datetime, date
 
 app = Flask(__name__)
 
@@ -51,8 +51,8 @@ def optimize():
 
     def get_historical_data_yf(ticker):
         try:
-            stock = yf.download(ticker, start=earliest_date)
-            first_date = stock.index[stock['Close'].notna()][0]
+            stock = yf.download(ticker, start=earliest_date, auto_adjust=True)
+            first_date = stock.index.min()
             return stock, first_date
         except Exception as e:
             print(f"Error fetching historical data for {ticker}: {e}")
@@ -73,7 +73,7 @@ def optimize():
             print(f'{ticker} has no data before {first_date}')
             earliest_date = first_date
         if historical_df is not None:
-            stocks_df = stocks_df.join(historical_df['Adj Close']).rename(columns={'Adj Close': ticker})
+            stocks_df = stocks_df.join(historical_df['Close']).rename(columns={'Close': ticker})
 
     daily_returns = stocks_df.pct_change().dropna()
 
@@ -140,6 +140,12 @@ def optimize():
 
     # Store the final results
     final_results = {}
+
+    today = date.today()
+
+    formatted_date = today.strftime("%Y-%m-%d")
+
+    final_results['latest_run_date'] = formatted_date
 
     # Results for max Sharpe portfolio
     final_results['max_sharpe'] = {
