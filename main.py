@@ -43,8 +43,9 @@ def optimize():
     def get_current_ticker_price_yf(ticker):
         try:
             stock = yf.Ticker(ticker)
+            stock_info = stock.info
             price = stock.history(period='1d')['Close'].values[0]
-            return price.item()
+            return price.item(), stock_info
         except Exception as e:
             print(f"Error fetching current price for {ticker}: {e}")
             return None
@@ -67,7 +68,7 @@ def optimize():
 
     for ticker in stock_universe:
         stocks[ticker] = {}
-        stocks[ticker]['current_price'] = get_current_ticker_price_yf(ticker)
+        stocks[ticker]['current_price'], stocks[ticker]['info'] = get_current_ticker_price_yf(ticker)
         historical_df, first_date = get_historical_data_yf(ticker)
         if first_date > earliest_date:
             print(f'{ticker} has no data before {first_date}')
@@ -156,7 +157,8 @@ def optimize():
             {
                 'ticker': stock_universe[i],
                 'weight': round(max_sharpe_results["x"][i], 4).item(),
-                'price': stocks[stock_universe[i]]['current_price']
+                'price': stocks[stock_universe[i]]['current_price'],
+                'info': stocks[stock_universe[i]]['info']
             } for i in range(len(stock_universe))
         ]
     }
