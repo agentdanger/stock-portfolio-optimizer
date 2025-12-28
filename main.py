@@ -71,7 +71,7 @@ def load_universe_from_gcs(bucket_name, blob_name, fallback):
 @app.route('/optimize', methods=['GET'])
 def optimize():
     # define stock universe and earliest date to start from
-    fallback_universe = [
+    stock_universe = [
         'AAPL', 'ABBV', 'ABT', 'ACN', 'ADI', 'ADP', 'AEE', 'AEP', 'AFL', 'ALL', 'AMD', 'AME', 'AMT', 'AMZN', 'APH', 'ATO', 'AVGO',
         'AWK', 'AXP', 'BA', 'BAC', 'BCE', 'BDX', 'BLK', 'BP', 'BRK-B', 'C', 'CAE', 'CARR', 'CB', 'CHD', 'CI', 'CL', 'CMCSA', 'CMI', 'CNP', 'COP', 'COST', 
         'CP', 'CRM', 'CSCO', 'CSX', 'CTVA', 'CVX', 'DCI', 'DE', 'DG', 'DHR', 'DIS', 'DLR', 'DTE', 'DUK', 'ECL', 'EL', 'ELV', 'EMR', 'ENB', 'EQR', 'EVRG', 'EXC', 
@@ -85,12 +85,6 @@ def optimize():
         "MELI","SPOT","ROKU","DASH","DLTR","DECK","CELH","MNST", "BIIB","MRNA","ILMN","IDXX","INCY","PODD",
         "CPRT","AXON","MTD","TTWO","SMCI", "COIN", "XYZ", "ARM"
         ]
-
-    stock_universe = load_universe_from_gcs(
-        bucket_name="portfolio-optimizer-35",
-        blob_name="stock_universe.json",
-        fallback=fallback_universe
-    )
 
     stock_universe = list(set(stock_universe))
 
