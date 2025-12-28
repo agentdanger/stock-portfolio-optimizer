@@ -92,10 +92,10 @@ def optimize():
 
     earliest_date = datetime(2014, 1, 1)
 
-    raw_threshold = request.args.get("max_dividend_yield", "0.5")
+    raw_threshold = request.args.get("max_dividend_yield", 0.5)
     keep_if_missing = request.args.get("keep_if_missing", "true").lower() == "true"
     auto_adjust = request.args.get("auto_adjust", "false").lower() == "true"
-    max_div_yield = raw_threshold
+    max_div_yield = float(raw_threshold)
 
     stock_universe, removed, dy_map, info_map = filter_universe_by_dividend_yield(
         stock_universe,
