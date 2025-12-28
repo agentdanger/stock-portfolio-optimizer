@@ -67,19 +67,6 @@ def load_universe_from_gcs(bucket_name, blob_name, fallback):
         return fallback
 
 
-def normalize_dividend_yield_threshold(raw_value, default_value=0.5):
-    try:
-        parsed_value = float(raw_value)
-    except (TypeError, ValueError):
-        parsed_value = default_value
-
-    if parsed_value > 1:
-        return parsed_value / 100.0
-    if parsed_value > 0.1:
-        return parsed_value / 100.0
-    return parsed_value
-
-
 
 @app.route('/optimize', methods=['GET'])
 def optimize():
@@ -108,7 +95,7 @@ def optimize():
     raw_threshold = request.args.get("max_dividend_yield", "0.5")
     keep_if_missing = request.args.get("keep_if_missing", "true").lower() == "true"
     auto_adjust = request.args.get("auto_adjust", "false").lower() == "true"
-    max_div_yield = normalize_dividend_yield_threshold(raw_threshold)
+    max_div_yield = raw_threshold
 
     stock_universe, removed, dy_map, info_map = filter_universe_by_dividend_yield(
         stock_universe,
