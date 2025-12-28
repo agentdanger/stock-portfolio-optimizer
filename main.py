@@ -31,7 +31,7 @@ def safe_dividend_yield(info):
         return None
 
 
-def filter_universe_by_dividend_yield(tickers, max_dividend_yield=0.005, keep_if_missing=True):
+def filter_universe_by_dividend_yield(tickers, max_dividend_yield=0.5, keep_if_missing=True):
     info_map = {}
     dividend_yield_map = {}
     kept, removed = [], []
@@ -93,7 +93,8 @@ def optimize():
         'MDT', 'MDU', 'META', 'MFC', 'MMM', 'MRK', 'MSCI', 'MSFT', 'NDAQ', 'NEE', 'NI', 'NKE', 'NOW', 'NTR', 'NVDA', 'O', 'OKE', 'ORCL', 'ORLY', 'PEP', 'PFE', 'PH',
         'PLD', 'PSA', 'QCOM', 'RF', 'ROP', 'ROST', 'RTX', 'SBUX', 'SHEL', 'SHW', 'SO', 'SPGI', 'STT', 'SU', 'SWK', 'SWX', 'SYK',
         'T', 'TFC', 'TGT', 'TJX', 'TMO', 'TRMB', 'TRP', 'TRV', 'TTE', 'ULTA', 'UNH', 'UNP', 'UPS', 'V', 'VFC', 'VZ', 
-        'WMT', 'WTRG', 'WWD', 'YUM', 'ZBH', 'ZTS'
+        'WMT', 'WTRG', 'WWD', 'YUM', 'ZBH', 'ZTS',"ADBE", "ANET", "ABNB", "AZO", "CMG", "CRWD", "ISRG", "LULU",
+        "NFLX", "PANW", "SNPS", "TSLA", "UBER", "VRTX", "REGN", "BKNG", "PYPL",
         ]
 
     stock_universe = load_universe_from_gcs(
