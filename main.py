@@ -81,7 +81,9 @@ def optimize():
         'PLD', 'PSA', 'QCOM', 'RF', 'ROP', 'ROST', 'RTX', 'SBUX', 'SHEL', 'SHW', 'SO', 'SPGI', 'STT', 'SU', 'SWK', 'SWX', 'SYK',
         'T', 'TFC', 'TGT', 'TJX', 'TMO', 'TRMB', 'TRP', 'TRV', 'TTE', 'ULTA', 'UNH', 'UNP', 'UPS', 'V', 'VFC', 'VZ', 
         'WMT', 'WTRG', 'WWD', 'YUM', 'ZBH', 'ZTS',"ADBE", "ANET", "ABNB", "AZO", "CMG", "CRWD", "ISRG", "LULU",
-        "NFLX", "PANW", "SNPS", "TSLA", "UBER", "VRTX", "REGN", "BKNG", "PYPL",
+        "NFLX", "PANW", "SNPS", "TSLA", "UBER", "VRTX", "REGN", "BKNG", "PYPL", "HUBS", "WDAY", "ADSK", "VEEV", "CDNS", "TTD", "CSGP", "SHOP", "PLTR", "DDOG", "NET", "TEAM", "MDB", "OKTA", "ZS", "SNOW",
+        "MELI","SPOT","ROKU","DASH","DLTR","DECK","CELH","MNST", "BIIB","MRNA","ILMN","IDXX","INCY","PODD",
+        "CPRT","AXON","MTD","TTWO","SMCI", "COIN", "XYZ", "ARM"
         ]
 
     stock_universe = load_universe_from_gcs(
@@ -89,6 +91,8 @@ def optimize():
         blob_name="stock_universe.json",
         fallback=fallback_universe
     )
+
+    stock_universe = list(set(stock_universe))
 
     earliest_date = datetime(2014, 1, 1)
 
