@@ -19,11 +19,72 @@ from datetime import datetime, date
 app = Flask(__name__)
 
 
+def safe_dividend_yield(info):
+    try:
+        dy = info["dividendYield"]
+        if dy is None:
+            return None
+        return float(dy)
+    except KeyError:
+        return None
+    except (TypeError, ValueError):
+        return None
+
+
+def filter_universe_by_dividend_yield(tickers, max_dividend_yield=0.005, keep_if_missing=True):
+    info_map = {}
+    dividend_yield_map = {}
+    kept, removed = [], []
+
+    for ticker in tickers:
+        try:
+            info = yf.Ticker(ticker).info or {}
+        except Exception:
+            info = {}
+
+        info_map[ticker] = info
+        dy = safe_dividend_yield(info)
+        dividend_yield_map[ticker] = dy
+
+        if dy is None:
+            (kept if keep_if_missing else removed).append(ticker)
+        elif dy <= max_dividend_yield:
+            kept.append(ticker)
+        else:
+            removed.append(ticker)
+
+    return kept, removed, dividend_yield_map, info_map
+
+
+def load_universe_from_gcs(bucket_name, blob_name, fallback):
+    try:
+        storage_client = storage.Client()
+        blob = storage_client.bucket(bucket_name).blob(blob_name)
+        raw = blob.download_as_string()
+        data = json.loads(raw)
+        return data if isinstance(data, list) and len(data) > 0 else fallback
+    except Exception:
+        return fallback
+
+
+def normalize_dividend_yield_threshold(raw_value, default_value=0.5):
+    try:
+        parsed_value = float(raw_value)
+    except (TypeError, ValueError):
+        parsed_value = default_value
+
+    if parsed_value > 1:
+        return parsed_value / 100.0
+    if parsed_value > 0.1:
+        return parsed_value / 100.0
+    return parsed_value
+
+
 
 @app.route('/optimize', methods=['GET'])
 def optimize():
     # define stock universe and earliest date to start from
-    stock_universe = [
+    fallback_universe = [
         'AAPL', 'ABBV', 'ABT', 'ACN', 'ADI', 'ADP', 'AEE', 'AEP', 'AFL', 'ALL', 'AMD', 'AME', 'AMT', 'AMZN', 'APH', 'ATO', 'AVGO',
         'AWK', 'AXP', 'BA', 'BAC', 'BCE', 'BDX', 'BLK', 'BP', 'BRK-B', 'C', 'CAE', 'CARR', 'CB', 'CHD', 'CI', 'CL', 'CMCSA', 'CMI', 'CNP', 'COP', 'COST', 
         'CP', 'CRM', 'CSCO', 'CSX', 'CTVA', 'CVX', 'DCI', 'DE', 'DG', 'DHR', 'DIS', 'DLR', 'DTE', 'DUK', 'ECL', 'EL', 'ELV', 'EMR', 'ENB', 'EQR', 'EVRG', 'EXC', 
@@ -35,40 +96,68 @@ def optimize():
         'WMT', 'WTRG', 'WWD', 'YUM', 'ZBH', 'ZTS'
         ]
 
+    stock_universe = load_universe_from_gcs(
+        bucket_name="portfolio-optimizer-35",
+        blob_name="stock_universe.json",
+        fallback=fallback_universe
+    )
+
     earliest_date = datetime(2014, 1, 1)
 
-    # helper functions for pulling data
+    raw_threshold = request.args.get("max_dividend_yield", "0.5")
+    keep_if_missing = request.args.get("keep_if_missing", "true").lower() == "true"
+    auto_adjust = request.args.get("auto_adjust", "false").lower() == "true"
+    max_div_yield = normalize_dividend_yield_threshold(raw_threshold)
+
+    stock_universe, removed, dy_map, info_map = filter_universe_by_dividend_yield(
+        stock_universe,
+        max_dividend_yield=max_div_yield,
+        keep_if_missing=keep_if_missing
+    )
+
+    if len(stock_universe) < 5:
+        return jsonify({
+            "error": "Dividend filter left too few tickers to optimize reliably.",
+            "kept": stock_universe,
+            "removed": removed,
+            "threshold_used": max_div_yield
+        }), 400
 
     # Helper functions for pulling data
     def get_current_ticker_price_yf(ticker):
         try:
             stock = yf.Ticker(ticker)
-            stock_info = stock.info
             price = stock.history(period='1d')['Close'].values[0]
-            return price.item(), stock_info
+            return price.item()
         except Exception as e:
             print(f"Error fetching current price for {ticker}: {e}")
             return None
 
     def get_historical_data_yf(ticker):
         try:
-            stock = yf.download(ticker, start=earliest_date, auto_adjust=True)
+            stock = yf.download(ticker, start=earliest_date, auto_adjust=auto_adjust)
             first_date = stock.index.min()
             return stock, first_date
         except Exception as e:
             print(f"Error fetching historical data for {ticker}: {e}")
             return None, earliest_date
 
-    historical_data, fd = get_historical_data_yf('AAPL')
+    historical_data, fd = get_historical_data_yf(stock_universe[0])
+    if historical_data is None or historical_data.empty:
+        return jsonify({
+            "error": "Failed to download historical data for optimization.",
+            "kept": stock_universe
+        }), 400
     
-    # Create dataframe with dates from AAPL historical data.
+    # Create dataframe with dates from the first ticker's historical data.
     stocks_df = pd.DataFrame(index=historical_data.index)
 
     stocks = {}
 
     for ticker in stock_universe:
         stocks[ticker] = {}
-        stocks[ticker]['current_price'], stocks[ticker]['info'] = get_current_ticker_price_yf(ticker)
+        stocks[ticker]['current_price'] = get_current_ticker_price_yf(ticker)
+        stocks[ticker]['info'] = info_map.get(ticker, {})
         historical_df, first_date = get_historical_data_yf(ticker)
         if first_date > earliest_date:
             print(f'{ticker} has no data before {first_date}')
@@ -118,6 +207,7 @@ def optimize():
 
     # Instantiate an empty container for storing the results
     obj_sd = []
+    frontier = []
 
     # Loop to minimize standard deviation for each target return
     for target in target_returns:
@@ -137,6 +227,7 @@ def optimize():
             constraints=constraints
         )
 
+        frontier.append(min_result_object)
         obj_sd.append(min_result_object['fun'])
 
     # Store the final results
@@ -147,6 +238,15 @@ def optimize():
     formatted_date = today.strftime("%Y-%m-%d")
 
     final_results['latest_run_date'] = formatted_date
+    final_results["dividend_filter"] = {
+        "max_dividend_yield_used": max_div_yield,
+        "keep_if_missing": keep_if_missing,
+        "removed": removed,
+        "dividend_yield": {k: (None if v is None else float(v)) for k, v in dy_map.items()}
+    }
+    final_results["price_series"] = {
+        "auto_adjust": auto_adjust
+    }
 
     # Results for max Sharpe portfolio
     final_results['max_sharpe'] = {
@@ -165,13 +265,14 @@ def optimize():
 
     # Results for each target return
     for i in range(len(target_returns)):
+        result = frontier[i]
         final_results[f'target_{i}'] = {
             'return': target_returns[i].item(),
             'sd': obj_sd[i].item(),
             'weights': [
                 {
                     'ticker': stock_universe[j],
-                    'weight': round(min_result_object["x"][j], 4).item(),
+                    'weight': round(result["x"][j], 4).item(),
                     'price': stocks[stock_universe[j]]['current_price']
                 } for j in range(len(stock_universe))
             ]
