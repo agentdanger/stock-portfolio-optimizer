@@ -88,7 +88,7 @@ def optimize():
 
     stock_universe = list(set(stock_universe))
 
-    earliest_date = datetime(2014, 1, 1)
+    earliest_date = datetime(2016, 1, 1)
 
     raw_threshold = request.args.get("max_dividend_yield", 0.5)
     keep_if_missing = request.args.get("keep_if_missing", "true").lower() == "true"
