@@ -15,8 +15,26 @@ import scipy.interpolate as sci
 import json
 
 from datetime import datetime, date
+import math
 
 app = Flask(__name__)
+
+def normalize_number(value):
+    if value is None:
+        return None
+    if isinstance(value, (np.floating, np.integer)):
+        value = value.item()
+    if isinstance(value, (float, int)):
+        return value if math.isfinite(value) else None
+    return value
+
+
+def sanitize_for_json(payload):
+    if isinstance(payload, dict):
+        return {key: sanitize_for_json(value) for key, value in payload.items()}
+    if isinstance(payload, list):
+        return [sanitize_for_json(value) for value in payload]
+    return normalize_number(payload)
 
 
 def safe_dividend_yield(info):
@@ -186,7 +204,10 @@ def optimize():
     # Calculate expected return, standard deviation, and Sharpe ratio
     max_sharpe_port_return = portfolio_returns(max_sharpe_results["x"])
     max_sharpe_port_sd = portfolio_sd(max_sharpe_results["x"])
-    max_sharpe_port_sharpe = max_sharpe_port_return / max_sharpe_port_sd
+    if not np.isfinite(max_sharpe_port_sd) or max_sharpe_port_sd == 0:
+        max_sharpe_port_sharpe = None
+    else:
+        max_sharpe_port_sharpe = max_sharpe_port_return / max_sharpe_port_sd
 
     # Initialize an array of target returns for efficient frontier calculation
     target_returns = np.linspace(start=0.15, stop=0.50, num=15)
@@ -236,9 +257,9 @@ def optimize():
 
     # Results for max Sharpe portfolio
     final_results['max_sharpe'] = {
-        'return': max_sharpe_port_return.item(),
-        'sd': max_sharpe_port_sd.item(),
-        'sharpe': max_sharpe_port_sharpe.item(),
+        'return': normalize_number(max_sharpe_port_return),
+        'sd': normalize_number(max_sharpe_port_sd),
+        'sharpe': normalize_number(max_sharpe_port_sharpe),
         'weights': [
             {
                 'ticker': stock_universe[i],
@@ -253,8 +274,8 @@ def optimize():
     for i in range(len(target_returns)):
         result = frontier[i]
         final_results[f'target_{i}'] = {
-            'return': target_returns[i].item(),
-            'sd': obj_sd[i].item(),
+            'return': normalize_number(target_returns[i]),
+            'sd': normalize_number(obj_sd[i]),
             'weights': [
                 {
                     'ticker': stock_universe[j],
@@ -264,11 +285,13 @@ def optimize():
             ]
         }
 
+    final_results = sanitize_for_json(final_results)
+
     # Save final results to Google Cloud Storage
     storage_client = storage.Client()
     bucket = storage_client.bucket('portfolio-optimizer-35')
     blob = bucket.blob('portfolio-results.json')
-    blob.upload_from_string(json.dumps(final_results))
+    blob.upload_from_string(json.dumps(final_results, allow_nan=False))
 
     # Return final results as JSON response
     response = jsonify(final_results)
