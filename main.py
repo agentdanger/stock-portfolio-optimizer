@@ -146,30 +146,62 @@ def optimize():
             print(f"Error fetching historical data for {ticker}: {e}")
             return None, earliest_date
 
-    historical_data, fd = get_historical_data_yf(stock_universe[0])
-    if historical_data is None or historical_data.empty:
-        return jsonify({
-            "error": "Failed to download historical data for optimization.",
-            "kept": stock_universe
-        }), 400
-    
-    # Create dataframe with dates from the first ticker's historical data.
-    stocks_df = pd.DataFrame(index=historical_data.index)
-
     stocks = {}
+    price_series = {}
+    first_dates = {}
+    last_dates = {}
+    data_removed = []
 
     for ticker in stock_universe:
         stocks[ticker] = {}
         stocks[ticker]['current_price'] = get_current_ticker_price_yf(ticker)
         stocks[ticker]['info'] = info_map.get(ticker, {})
-        historical_df, first_date = get_historical_data_yf(ticker)
-        if first_date > earliest_date:
-            print(f'{ticker} has no data before {first_date}')
-            earliest_date = first_date
-        if historical_df is not None:
-            stocks_df = stocks_df.join(historical_df['Close']).rename(columns={'Close': ticker})
+        historical_df, _ = get_historical_data_yf(ticker)
+        if historical_df is None or historical_df.empty or 'Close' not in historical_df:
+            data_removed.append(ticker)
+            continue
+        series = historical_df['Close'].dropna()
+        if series.empty:
+            data_removed.append(ticker)
+            continue
+        price_series[ticker] = series
+        first_dates[ticker] = series.index.min()
+        last_dates[ticker] = series.index.max()
+
+    stock_universe = [ticker for ticker in stock_universe if ticker in price_series]
+
+    if len(stock_universe) < 5:
+        return jsonify({
+            "error": "Too few tickers with historical data after filtering.",
+            "kept": stock_universe,
+            "removed": removed,
+            "data_removed": data_removed
+        }), 400
+
+    common_start = max(first_dates.values())
+    common_end = min(last_dates.values())
+
+    if common_start >= common_end:
+        return jsonify({
+            "error": "No overlapping price history across tickers.",
+            "kept": stock_universe,
+            "removed": removed,
+            "data_removed": data_removed
+        }), 400
+
+    stocks_df = pd.DataFrame({
+        ticker: series.loc[common_start:common_end]
+        for ticker, series in price_series.items()
+    }).dropna(how='any')
 
     daily_returns = stocks_df.pct_change().dropna()
+    if daily_returns.empty:
+        return jsonify({
+            "error": "Not enough return data to optimize.",
+            "kept": stock_universe,
+            "removed": removed,
+            "data_removed": data_removed
+        }), 400
 
     # Portfolio return function
     def portfolio_returns(weights):
@@ -252,7 +284,12 @@ def optimize():
         "dividend_yield": {k: (None if v is None else float(v)) for k, v in dy_map.items()}
     }
     final_results["price_series"] = {
-        "auto_adjust": auto_adjust
+        "auto_adjust": auto_adjust,
+        "data_removed": data_removed,
+        "data_window": {
+            "start": common_start.strftime("%Y-%m-%d"),
+            "end": common_end.strftime("%Y-%m-%d")
+        }
     }
 
     # Results for max Sharpe portfolio
