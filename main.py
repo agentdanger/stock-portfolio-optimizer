@@ -189,10 +189,35 @@ def optimize():
             "data_removed": data_removed
         }), 400
 
-    stocks_df = pd.DataFrame({
-        ticker: series.loc[common_start:common_end]
-        for ticker, series in price_series.items()
-    }).dropna(how='any')
+    sliced_series = []
+    overlap_removed = []
+    for ticker, series in price_series.items():
+        sliced = series.loc[common_start:common_end]
+        if isinstance(sliced, pd.Series):
+            sliced = sliced.dropna()
+            if sliced.empty:
+                overlap_removed.append(ticker)
+                continue
+            sliced_series.append(sliced.rename(ticker))
+        else:
+            if pd.isna(sliced):
+                overlap_removed.append(ticker)
+                continue
+            sliced_series.append(pd.Series([sliced], index=[common_start], name=ticker))
+
+    if overlap_removed:
+        data_removed.extend(overlap_removed)
+        stock_universe = [ticker for ticker in stock_universe if ticker not in overlap_removed]
+
+    if not sliced_series:
+        return jsonify({
+            "error": "No usable overlapping price data across tickers.",
+            "kept": stock_universe,
+            "removed": removed,
+            "data_removed": data_removed
+        }), 400
+
+    stocks_df = pd.concat(sliced_series, axis=1).dropna(how='any')
 
     daily_returns = stocks_df.pct_change().dropna()
     if daily_returns.empty:
