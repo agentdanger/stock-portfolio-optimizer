@@ -193,6 +193,15 @@ def optimize():
     overlap_removed = []
     for ticker, series in price_series.items():
         sliced = series.loc[common_start:common_end]
+        if isinstance(sliced, pd.DataFrame):
+            if sliced.empty:
+                overlap_removed.append(ticker)
+                continue
+            if sliced.shape[1] == 1:
+                sliced = sliced.iloc[:, 0]
+            else:
+                overlap_removed.append(ticker)
+                continue
         if isinstance(sliced, pd.Series):
             sliced = sliced.dropna()
             if sliced.empty:
