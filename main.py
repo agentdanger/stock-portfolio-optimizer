@@ -85,6 +85,213 @@ def load_universe_from_gcs(bucket_name, blob_name, fallback):
         return fallback
 
 
+def calculate_max_drawdown(values):
+    """Calculate maximum drawdown from a series of portfolio values."""
+    if len(values) < 2:
+        return 0.0
+    values = np.array(values)
+    peak = np.maximum.accumulate(values)
+    drawdown = (values - peak) / peak
+    return float(np.min(drawdown))
+
+
+def calculate_sharpe_ratio(returns, risk_free_rate=0.0):
+    """Calculate annualized Sharpe ratio from daily returns."""
+    if len(returns) < 2:
+        return 0.0
+    returns = np.array(returns)
+    excess_returns = returns - risk_free_rate / 252
+    if np.std(excess_returns) == 0:
+        return 0.0
+    return float(np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(252))
+
+
+def get_quarterly_rebalance_dates(start_date, end_date):
+    """Generate list of quarter-end rebalance dates between start and end."""
+    rebalance_dates = []
+    current = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+
+    # Move to first quarter end after start
+    quarter_ends = {3: 31, 6: 30, 9: 30, 12: 31}
+
+    while current <= end:
+        month = current.month
+        # Find next quarter end
+        if month <= 3:
+            next_qe = pd.Timestamp(year=current.year, month=3, day=31)
+        elif month <= 6:
+            next_qe = pd.Timestamp(year=current.year, month=6, day=30)
+        elif month <= 9:
+            next_qe = pd.Timestamp(year=current.year, month=9, day=30)
+        else:
+            next_qe = pd.Timestamp(year=current.year, month=12, day=31)
+
+        if next_qe >= current and next_qe <= end:
+            rebalance_dates.append(next_qe)
+
+        # Move to next quarter
+        if next_qe.month == 12:
+            current = pd.Timestamp(year=next_qe.year + 1, month=1, day=1)
+        else:
+            current = pd.Timestamp(year=next_qe.year, month=next_qe.month + 1, day=1)
+
+    return rebalance_dates
+
+
+def run_backtest(tickers, price_data, benchmark_data, start_date, end_date, lookback_days=252):
+    """
+    Run walk-forward backtest simulation.
+
+    Args:
+        tickers: List of stock tickers to include
+        price_data: DataFrame with price data for all tickers
+        benchmark_data: Series with benchmark (S&P 500) prices
+        start_date: Backtest start date
+        end_date: Backtest end date
+        lookback_days: Days of history for each optimization
+
+    Returns:
+        Dict with portfolio values, benchmark values, and metrics
+    """
+    initial_value = 100000
+
+    # Align price data and benchmark to common dates
+    common_dates = price_data.index.intersection(benchmark_data.index)
+    price_data = price_data.loc[common_dates]
+    benchmark_data = benchmark_data.loc[common_dates]
+
+    # Filter to backtest period
+    mask = (price_data.index >= pd.Timestamp(start_date)) & (price_data.index <= pd.Timestamp(end_date))
+    bt_prices = price_data.loc[mask]
+    bt_benchmark = benchmark_data.loc[mask]
+
+    if len(bt_prices) < lookback_days + 20:
+        return None  # Not enough data
+
+    # Get rebalance dates
+    rebalance_dates = get_quarterly_rebalance_dates(start_date, end_date)
+
+    # Filter rebalance dates to those present in our data (or nearest prior date)
+    valid_rebalance_dates = []
+    for rd in rebalance_dates:
+        # Find nearest date in data that is <= rd
+        available = bt_prices.index[bt_prices.index <= rd]
+        if len(available) > 0:
+            valid_rebalance_dates.append(available[-1])
+
+    # Remove duplicates and sort
+    valid_rebalance_dates = sorted(list(set(valid_rebalance_dates)))
+
+    if len(valid_rebalance_dates) < 2:
+        return None  # Not enough rebalance periods
+
+    # Initialize tracking
+    portfolio_values = []
+    benchmark_values = []
+    quarterly_values = []
+
+    current_weights = np.array([1.0 / len(tickers)] * len(tickers))  # Start equal weight
+    portfolio_value = initial_value
+    benchmark_value = initial_value
+
+    # Track benchmark starting price
+    benchmark_start_price = bt_benchmark.iloc[0]
+
+    # Walk through each day
+    all_dates = bt_prices.index.tolist()
+    prev_prices = None
+    rebalance_idx = 0
+
+    for i, current_date in enumerate(all_dates):
+        current_prices = bt_prices.loc[current_date].values
+        current_benchmark_price = bt_benchmark.loc[current_date]
+
+        # Check if we need to rebalance
+        if rebalance_idx < len(valid_rebalance_dates) and current_date >= valid_rebalance_dates[rebalance_idx]:
+            # Get training data (lookback_days before this date)
+            train_end_idx = i
+            train_start_idx = max(0, train_end_idx - lookback_days)
+
+            if train_end_idx - train_start_idx >= 60:  # Need at least 60 days of data
+                train_prices = bt_prices.iloc[train_start_idx:train_end_idx]
+                train_returns = train_prices.pct_change().dropna()
+
+                if len(train_returns) >= 30:
+                    # Run optimization on training data
+                    try:
+                        mean_returns = train_returns.mean() * 252
+                        cov_matrix = train_returns.cov() * 252
+
+                        def neg_sharpe(w):
+                            port_ret = np.sum(mean_returns * w)
+                            port_vol = np.sqrt(w.T @ cov_matrix @ w)
+                            if port_vol == 0:
+                                return 0
+                            return -port_ret / port_vol
+
+                        constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
+                        bounds = tuple((0, 1) for _ in range(len(tickers)))
+                        init_weights = np.array([1.0 / len(tickers)] * len(tickers))
+
+                        result = sco.minimize(
+                            neg_sharpe,
+                            init_weights,
+                            method='SLSQP',
+                            bounds=bounds,
+                            constraints=constraints
+                        )
+
+                        if result.success:
+                            current_weights = result.x
+                    except Exception:
+                        pass  # Keep previous weights on optimization failure
+
+            rebalance_idx += 1
+
+        # Calculate daily returns and update portfolio value
+        if prev_prices is not None and i > 0:
+            daily_returns = (current_prices - prev_prices) / prev_prices
+            daily_returns = np.nan_to_num(daily_returns, nan=0.0)
+            portfolio_return = np.sum(current_weights * daily_returns)
+            portfolio_value = portfolio_value * (1 + portfolio_return)
+
+        # Update benchmark value (buy and hold)
+        benchmark_value = initial_value * (current_benchmark_price / benchmark_start_price)
+
+        portfolio_values.append(portfolio_value)
+        benchmark_values.append(benchmark_value)
+
+        # Record quarterly values
+        if current_date in valid_rebalance_dates:
+            quarter = (current_date.month - 1) // 3 + 1
+            quarterly_values.append({
+                "date": f"{current_date.year}-Q{quarter}",
+                "portfolio": round(portfolio_value, 2),
+                "benchmark": round(benchmark_value, 2)
+            })
+
+        prev_prices = current_prices
+
+    # Calculate metrics
+    portfolio_returns_daily = np.diff(portfolio_values) / portfolio_values[:-1]
+    benchmark_returns_daily = np.diff(benchmark_values) / benchmark_values[:-1]
+
+    portfolio_total_return = (portfolio_values[-1] - initial_value) / initial_value
+    benchmark_total_return = (benchmark_values[-1] - initial_value) / initial_value
+
+    return {
+        "period": f"{start_date} to {end_date}",
+        "portfolio_return": round(portfolio_total_return, 4),
+        "benchmark_return": round(benchmark_total_return, 4),
+        "outperformance": round(portfolio_total_return - benchmark_total_return, 4),
+        "portfolio_sharpe": round(calculate_sharpe_ratio(portfolio_returns_daily), 2),
+        "benchmark_sharpe": round(calculate_sharpe_ratio(benchmark_returns_daily), 2),
+        "portfolio_max_drawdown": round(calculate_max_drawdown(portfolio_values), 4),
+        "benchmark_max_drawdown": round(calculate_max_drawdown(benchmark_values), 4),
+        "quarterly_values": quarterly_values
+    }
+
 
 @app.route('/optimize', methods=['GET'])
 def optimize():
@@ -355,6 +562,47 @@ def optimize():
                 } for j in range(len(stock_universe))
             ]
         }
+
+    # Run backtest validation
+    try:
+        # Fetch S&P 500 benchmark data
+        benchmark_ticker = "^GSPC"
+        benchmark_df = yf.download(benchmark_ticker, start=earliest_date, auto_adjust=auto_adjust)
+
+        if benchmark_df is not None and not benchmark_df.empty and 'Close' in benchmark_df:
+            benchmark_series = benchmark_df['Close'].dropna()
+            if isinstance(benchmark_series, pd.DataFrame):
+                benchmark_series = benchmark_series.iloc[:, 0]
+
+            # Determine backtest period (5 years back from common_end or available data)
+            backtest_end = common_end
+            backtest_start = backtest_end - pd.DateOffset(years=5)
+
+            # Ensure backtest_start is not before our data starts
+            if backtest_start < common_start:
+                backtest_start = common_start
+
+            backtest_start_str = backtest_start.strftime("%Y-%m-%d")
+            backtest_end_str = backtest_end.strftime("%Y-%m-%d")
+
+            # Run the backtest
+            backtest_result = run_backtest(
+                tickers=stock_universe,
+                price_data=stocks_df,
+                benchmark_data=benchmark_series,
+                start_date=backtest_start_str,
+                end_date=backtest_end_str,
+                lookback_days=252
+            )
+
+            if backtest_result is not None:
+                final_results['backtest'] = backtest_result
+            else:
+                final_results['backtest'] = {"error": "Insufficient data for backtest"}
+        else:
+            final_results['backtest'] = {"error": "Could not fetch benchmark data"}
+    except Exception as e:
+        final_results['backtest'] = {"error": f"Backtest failed: {str(e)}"}
 
     final_results = sanitize_for_json(final_results)
 
