@@ -280,11 +280,20 @@ def run_backtest(tickers, price_data, benchmark_data, start_date, end_date, look
     portfolio_total_return = (portfolio_values[-1] - initial_value) / initial_value
     benchmark_total_return = (benchmark_values[-1] - initial_value) / initial_value
 
+    # Calculate annualized returns
+    num_years = len(all_dates) / 252  # Trading days per year
+    if num_years > 0:
+        portfolio_annualized_return = (1 + portfolio_total_return) ** (1 / num_years) - 1
+        benchmark_annualized_return = (1 + benchmark_total_return) ** (1 / num_years) - 1
+    else:
+        portfolio_annualized_return = 0.0
+        benchmark_annualized_return = 0.0
+
     return {
         "period": f"{start_date} to {end_date}",
-        "portfolio_return": round(portfolio_total_return, 4),
-        "benchmark_return": round(benchmark_total_return, 4),
-        "outperformance": round(portfolio_total_return - benchmark_total_return, 4),
+        "portfolio_annualized_return": round(portfolio_annualized_return, 4),
+        "benchmark_annualized_return": round(benchmark_annualized_return, 4),
+        "outperformance": round(portfolio_annualized_return - benchmark_annualized_return, 4),
         "portfolio_sharpe": round(calculate_sharpe_ratio(portfolio_returns_daily), 2),
         "benchmark_sharpe": round(calculate_sharpe_ratio(benchmark_returns_daily), 2),
         "portfolio_max_drawdown": round(calculate_max_drawdown(portfolio_values), 4),
@@ -444,9 +453,10 @@ def optimize():
             "data_removed": data_removed
         }), 400
 
-    # Portfolio return function
+    # Portfolio return function (IRR/compound annualized return)
     def portfolio_returns(weights):
-        return (np.sum(daily_returns.mean() * weights)) * 253
+        daily_return = np.sum(daily_returns.mean() * weights)
+        return ((1 + daily_return) ** 253) - 1
 
     # Portfolio standard deviation function
     def portfolio_sd(weights):
