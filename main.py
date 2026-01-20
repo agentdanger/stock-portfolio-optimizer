@@ -453,10 +453,15 @@ def optimize():
             "data_removed": data_removed
         }), 400
 
-    # Portfolio return function (IRR/compound annualized return)
+    # Portfolio return function using log returns (for optimization stability)
     def portfolio_returns(weights):
         daily_return = np.sum(daily_returns.mean() * weights)
-        return ((1 + daily_return) ** 253) - 1
+        return np.log(1 + daily_return) * 253
+
+    # Convert log return to annualized simple return (for display)
+    def annualized_return(weights):
+        log_return = portfolio_returns(weights)
+        return np.exp(log_return) - 1
 
     # Portfolio standard deviation function
     def portfolio_sd(weights):
@@ -485,7 +490,7 @@ def optimize():
     )
 
     # Calculate expected return, standard deviation, and Sharpe ratio
-    max_sharpe_port_return = portfolio_returns(max_sharpe_results["x"])
+    max_sharpe_port_return = annualized_return(max_sharpe_results["x"])
     max_sharpe_port_sd = portfolio_sd(max_sharpe_results["x"])
     if not np.isfinite(max_sharpe_port_sd) or max_sharpe_port_sd == 0:
         max_sharpe_port_sharpe = None
@@ -562,7 +567,7 @@ def optimize():
     for i in range(len(target_returns)):
         result = frontier[i]
         final_results[f'target_{i}'] = {
-            'return': normalize_number(target_returns[i]),
+            'return': normalize_number(np.exp(target_returns[i]) - 1),
             'sd': normalize_number(obj_sd[i]),
             'weights': [
                 {
