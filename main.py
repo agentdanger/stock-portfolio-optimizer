@@ -11,6 +11,7 @@ import numpy as np
 
 import scipy.optimize as sco
 import scipy.interpolate as sci
+from sklearn.covariance import LedoitWolf
 
 import json
 
@@ -221,7 +222,8 @@ def run_backtest(tickers, price_data, benchmark_data, start_date, end_date, look
                     # Run optimization on training data
                     try:
                         mean_returns = train_returns.mean() * 252
-                        cov_matrix = train_returns.cov() * 252
+                        lw_bt = LedoitWolf().fit(train_returns.values)
+                        cov_matrix = lw_bt.covariance_ * 252
 
                         def neg_sharpe(w):
                             port_ret = np.sum(mean_returns * w)
@@ -453,6 +455,10 @@ def optimize():
             "data_removed": data_removed
         }), 400
 
+    # Compute Ledoit-Wolf shrinkage covariance matrix (more stable than sample covariance)
+    lw = LedoitWolf().fit(daily_returns.values)
+    cov_matrix_annual = lw.covariance_ * 253
+
     # Portfolio return function using log returns (for optimization stability)
     def portfolio_returns(weights):
         daily_return = np.sum(daily_returns.mean() * weights)
@@ -465,7 +471,7 @@ def optimize():
 
     # Portfolio standard deviation function
     def portfolio_sd(weights):
-        return np.sqrt(np.transpose(weights) @ (daily_returns.cov() * 253) @ weights)
+        return np.sqrt(np.transpose(weights) @ cov_matrix_annual @ weights)
 
     # Sharpe function
     def sharpe_fun(weights):
