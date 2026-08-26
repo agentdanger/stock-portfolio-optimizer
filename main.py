@@ -304,6 +304,46 @@ def run_backtest(tickers, price_data, benchmark_data, start_date, end_date, look
     }
 
 
+# --- Price-history screening -------------------------------------------------
+MIN_HISTORY_TRADING_DAYS = 504   # ~2 years: covers the 252-day backtest lookback plus rebalances
+MAX_STALE_DAYS = 7               # last price must be within a week of the freshest ticker
+MAX_GAP_DAYS = 14                # no hole in the series longer than two weeks (holidays are < 5 days)
+MAX_ABS_DAILY_LOG_RETURN = 1.0   # a single-day move beyond ~+170% / -63% is suspect ...
+GLITCH_REVERT_TOLERANCE = 0.25   # ... and treated as a data glitch only if price snaps back to within 25% of the pre-move level
+MIN_WINDOW_TRADING_DAYS = 504    # refuse to publish an optimization run on less than ~2 years
+MAX_PLAUSIBLE_ANNUAL_RETURN = 2.0  # refuse to publish a max-Sharpe portfolio claiming > 200%/yr
+
+
+def screen_price_history(series, latest_available):
+    """Return a reason string if a ticker's price series is unusable, else None."""
+    series = series.dropna()
+    if series.empty:
+        return "no prices"
+    if (series <= 0).any():
+        return "non-positive prices"
+    if (latest_available - series.index.max()).days > MAX_STALE_DAYS:
+        return f"stale: last price {series.index.max().date()} vs {latest_available.date()}"
+    if len(series) < MIN_HISTORY_TRADING_DAYS:
+        return f"short history: {len(series)} trading days from {series.index.min().date()}"
+    gaps = series.index.to_series().diff().dt.days
+    if gaps.max() > MAX_GAP_DAYS:
+        gap_end = gaps.idxmax()
+        return f"gap of {int(gaps.max())} days ending {gap_end.date()}"
+    # A huge one-day move is only a glitch if the price reverts right after it.
+    # Real events (a biotech readout, a takeover) move the price and it stays moved.
+    log_ret = np.log(series).diff().dropna()
+    suspects = log_ret[log_ret.abs() > MAX_ABS_DAILY_LOG_RETURN]
+    for day, move in suspects.items():
+        pos = series.index.get_loc(day)
+        before = series.iloc[pos - 1]
+        after = series.iloc[pos + 1:pos + 6]
+        if after.empty:
+            continue  # move is on the last day; nothing to compare against yet
+        if abs(after.median() / before - 1.0) <= GLITCH_REVERT_TOLERANCE:
+            return f"price glitch: {move * 100:.0f}% (log) move on {day.date()} that reverted"
+    return None
+
+
 @app.route('/optimize', methods=['GET'])
 def optimize():
     # define stock universe and earliest date to start from
@@ -396,20 +436,14 @@ def optimize():
             "data_removed": data_removed
         }), 400
 
-    # Guard the common window: a single ticker with a short or stale history
-    # (e.g. a broken Yahoo listing returning a few weeks of prices) would
-    # otherwise collapse common_start/common_end for the whole universe.
-    MIN_HISTORY_TRADING_DAYS = 504   # ~2 years: enough for the 252-day backtest lookback plus rebalances
-    MAX_STALE_DAYS = 7
+    # Screen out broken or unusable price histories BEFORE computing the common
+    # window. A single bad ticker (e.g. a Yahoo listing that suddenly returns a
+    # few weeks of prices) would otherwise collapse common_start/common_end for
+    # the whole universe and the optimizer would run on days of data.
     latest_available = max(last_dates.values())
     data_removed_reasons = {}
     for ticker in list(price_series.keys()):
-        series = price_series[ticker]
-        reason = None
-        if (latest_available - last_dates[ticker]).days > MAX_STALE_DAYS:
-            reason = f"stale: last price {last_dates[ticker].date()} vs {latest_available.date()}"
-        elif len(series) < MIN_HISTORY_TRADING_DAYS:
-            reason = f"short history: {len(series)} trading days from {first_dates[ticker].date()}"
+        reason = screen_price_history(price_series[ticker], latest_available)
         if reason:
             print(f"Dropping {ticker}: {reason}")
             data_removed.append(ticker)
@@ -666,6 +700,27 @@ def optimize():
         final_results['backtest_error'] = f"Backtest failed: {str(e)}"
 
     final_results = sanitize_for_json(final_results)
+
+    # Sanity gate: never overwrite the published results with a run that is
+    # obviously broken (too little data, or a return no real portfolio has).
+    window_days = len(stocks_df)
+    max_sharpe_return = final_results.get('max_sharpe', {}).get('return')
+    problems = []
+    if window_days < MIN_WINDOW_TRADING_DAYS:
+        problems.append(f"data window is only {window_days} trading days ({common_start.date()} to {common_end.date()})")
+    if max_sharpe_return is None or not np.isfinite(max_sharpe_return):
+        problems.append("max-Sharpe return is not finite")
+    elif max_sharpe_return > MAX_PLAUSIBLE_ANNUAL_RETURN:
+        problems.append(f"max-Sharpe annualized return of {max_sharpe_return * 100:.0f}% is not plausible")
+    if problems:
+        print("Refusing to publish results: " + "; ".join(problems))
+        return jsonify({
+            "error": "Optimization run failed sanity checks; published results left unchanged.",
+            "problems": problems,
+            "data_removed": data_removed,
+            "data_removed_reasons": data_removed_reasons,
+            "data_window": final_results.get('price_series', {}).get('data_window')
+        }), 500
 
     # Save final results to Google Cloud Storage
     storage_client = storage.Client()
