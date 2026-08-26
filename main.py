@@ -316,6 +316,11 @@ MAX_PLAUSIBLE_ANNUAL_RETURN = 2.0  # refuse to publish a max-Sharpe portfolio cl
 
 def screen_price_history(series, latest_available):
     """Return a reason string if a ticker's price series is unusable, else None."""
+    # yfinance returns a one-column DataFrame for single-ticker downloads; work on a Series.
+    if isinstance(series, pd.DataFrame):
+        if series.shape[1] != 1:
+            return f"unexpected price data shape {series.shape}"
+        series = series.iloc[:, 0]
     series = series.dropna()
     if series.empty:
         return "no prices"
@@ -418,7 +423,13 @@ def optimize():
         if historical_df is None or historical_df.empty or 'Close' not in historical_df:
             data_removed.append(ticker)
             continue
-        series = historical_df['Close'].dropna()
+        series = historical_df['Close']
+        if isinstance(series, pd.DataFrame):
+            series = series.iloc[:, 0] if series.shape[1] == 1 else None
+        if series is None:
+            data_removed.append(ticker)
+            continue
+        series = series.dropna()
         if series.empty:
             data_removed.append(ticker)
             continue
