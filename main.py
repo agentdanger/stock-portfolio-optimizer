@@ -396,6 +396,39 @@ def optimize():
             "data_removed": data_removed
         }), 400
 
+    # Guard the common window: a single ticker with a short or stale history
+    # (e.g. a broken Yahoo listing returning a few weeks of prices) would
+    # otherwise collapse common_start/common_end for the whole universe.
+    MIN_HISTORY_TRADING_DAYS = 504   # ~2 years: enough for the 252-day backtest lookback plus rebalances
+    MAX_STALE_DAYS = 7
+    latest_available = max(last_dates.values())
+    data_removed_reasons = {}
+    for ticker in list(price_series.keys()):
+        series = price_series[ticker]
+        reason = None
+        if (latest_available - last_dates[ticker]).days > MAX_STALE_DAYS:
+            reason = f"stale: last price {last_dates[ticker].date()} vs {latest_available.date()}"
+        elif len(series) < MIN_HISTORY_TRADING_DAYS:
+            reason = f"short history: {len(series)} trading days from {first_dates[ticker].date()}"
+        if reason:
+            print(f"Dropping {ticker}: {reason}")
+            data_removed.append(ticker)
+            data_removed_reasons[ticker] = reason
+            del price_series[ticker]
+            del first_dates[ticker]
+            del last_dates[ticker]
+
+    stock_universe = [ticker for ticker in stock_universe if ticker in price_series]
+
+    if len(stock_universe) < 5:
+        return jsonify({
+            "error": "Too few tickers with sufficient price history after filtering.",
+            "kept": stock_universe,
+            "removed": removed,
+            "data_removed": data_removed,
+            "data_removed_reasons": data_removed_reasons
+        }), 400
+
     common_start = max(first_dates.values())
     common_end = min(last_dates.values())
 
@@ -548,6 +581,7 @@ def optimize():
     final_results["price_series"] = {
         "auto_adjust": auto_adjust,
         "data_removed": data_removed,
+        "data_removed_reasons": data_removed_reasons,
         "data_window": {
             "start": common_start.strftime("%Y-%m-%d"),
             "end": common_end.strftime("%Y-%m-%d")
@@ -616,14 +650,20 @@ def optimize():
                 lookback_days=252
             )
 
+            # backtest is either a full result or null; the reason lives in backtest_error
+            # so the frontend never has to distinguish an error object from real metrics.
             if backtest_result is not None:
                 final_results['backtest'] = backtest_result
+                final_results['backtest_error'] = None
             else:
-                final_results['backtest'] = {"error": "Insufficient data for backtest"}
+                final_results['backtest'] = None
+                final_results['backtest_error'] = "Insufficient data for backtest"
         else:
-            final_results['backtest'] = {"error": "Could not fetch benchmark data"}
+            final_results['backtest'] = None
+            final_results['backtest_error'] = "Could not fetch benchmark data"
     except Exception as e:
-        final_results['backtest'] = {"error": f"Backtest failed: {str(e)}"}
+        final_results['backtest'] = None
+        final_results['backtest_error'] = f"Backtest failed: {str(e)}"
 
     final_results = sanitize_for_json(final_results)
 
